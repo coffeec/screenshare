@@ -116,21 +116,39 @@ func (r *Room) removeTrack(owner *Peer, local *webrtc.TrackLocalStaticRTP) {
 }
 
 // signalPeerConnections syncs senders on every peer with the room's track set
-// and sends fresh offers. Ported from pion sfu-ws attemptSync.
+// and sends fresh offers.
+//
+// Offers are collected under the lock but sent AFTER releasing it, so a single
+// slow/stalled WebSocket (common over the SakuraFrp double-hop) cannot block
+// the entire room's signaling path.
 func (r *Room) signalPeerConnections() {
+	type pendingOffer struct {
+		peer *Peer
+		sdp  string
+	}
+
 	r.mu.Lock()
-	defer func() {
-		r.mu.Unlock()
-	}()
+
+	var pending []pendingOffer
 
 	attemptSync := func() (tryAgain bool) {
-		for i := range r.peers {
-			p := r.peers[i]
-			if p.pc.ConnectionState() == webrtc.PeerConnectionStateClosed {
-				r.peers = append(r.peers[:i], r.peers[i+1:]...)
-				return true
+		// Batch-remove closed peers in one pass — O(n) instead of the
+		// original per-element splice that restarts the loop each time.
+		n := 0
+		for _, p := range r.peers {
+			if p.pc.ConnectionState() != webrtc.PeerConnectionStateClosed {
+				r.peers[n] = p
+				n++
 			}
+		}
+		for i := n; i < len(r.peers); i++ {
+			r.peers[i] = nil // clear stale pointers for GC
+		}
+		r.peers = r.peers[:n]
 
+		pending = pending[:0]
+
+		for _, p := range r.peers {
 			existingSenders := map[string]bool{}
 			for _, sender := range p.pc.GetSenders() {
 				if sender.Track() == nil {
@@ -176,9 +194,8 @@ func (r *Room) signalPeerConnections() {
 			if err = p.pc.SetLocalDescription(offer); err != nil {
 				return true
 			}
-			if err = p.send(msg{Type: "offer", SDP: offer.SDP}); err != nil {
-				return true
-			}
+
+			pending = append(pending, pendingOffer{peer: p, sdp: offer.SDP})
 		}
 		return false
 	}
@@ -186,6 +203,7 @@ func (r *Room) signalPeerConnections() {
 	for tries := 0; ; tries++ {
 		if tries == 25 {
 			// Release and retry later; something is mid-negotiation.
+			r.mu.Unlock()
 			go func() {
 				time.Sleep(3 * time.Second)
 				r.signalPeerConnections()
@@ -196,7 +214,15 @@ func (r *Room) signalPeerConnections() {
 			break
 		}
 	}
+
 	r.dispatchKeyFrameLocked()
+	r.mu.Unlock()
+
+	// Send offers outside the lock — a stalled client's 10s write deadline
+	// no longer blocks track sync or SDP generation for the whole room.
+	for _, o := range pending {
+		_ = o.peer.send(msg{Type: "offer", SDP: o.sdp})
+	}
 }
 
 func (r *Room) keyFrameLoop() {

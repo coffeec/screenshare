@@ -585,9 +585,6 @@ function stopLocalCapture() {
 // ---------- stats ----------
 
 $('stats-btn').addEventListener('click', toggleStats);
-document.addEventListener('keydown', (e) => {
-  if (e.key === 's' && !e.target.matches('input, select')) toggleStats();
-});
 
 function toggleStats() {
   const showing = statsTimer !== null;

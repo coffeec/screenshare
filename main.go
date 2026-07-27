@@ -16,14 +16,15 @@ import (
 var staticFS embed.FS
 
 type config struct {
-	httpsAddr    string
-	mediaUDPPort int
-	mediaTCPPort int
-	mediaIP      string
-	publicHost   string
-	token        string
-	certFile     string
-	keyFile      string
+	httpsAddr      string
+	mediaUDPPort   int
+	mediaTCPPort   int
+	mediaIP        string
+	publicHost     string
+	publicUDPPort  int
+	token          string
+	certFile       string
+	keyFile        string
 }
 
 var cfg config
@@ -34,6 +35,7 @@ func main() {
 	flag.IntVar(&cfg.mediaTCPPort, "media-tcp-port", 8444, "TCP port for ICE-TCP fallback")
 	flag.StringVar(&cfg.mediaIP, "media-ip", envOr("SS_MEDIA_IP", ""), "specific interface IP to bind media sockets to (avoids ghost candidates from docker/vpn interfaces)")
 	flag.StringVar(&cfg.publicHost, "public-host", envOr("SS_PUBLIC_HOST", ""), "public hostname or IP advertised in ICE candidates (e.g. SakuraFrp node)")
+	flag.IntVar(&cfg.publicUDPPort, "public-udp-port", 0, "external UDP port if different from -media-udp-port (e.g. SakuraFrp mapped port)")
 	flag.StringVar(&cfg.token, "token", envOr("SS_TOKEN", ""), "shared access token (generated if empty)")
 	flag.StringVar(&cfg.certFile, "cert", envOr("SS_CERT", "cert.pem"), "TLS certificate file")
 	flag.StringVar(&cfg.keyFile, "key", envOr("SS_KEY", "key.pem"), "TLS key file")
@@ -64,7 +66,11 @@ func main() {
 		log.Printf("advertising public IP: %s", publicIPs[0])
 	}
 
-	if err := buildWebRTCAPI(cfg.mediaIP, cfg.mediaUDPPort, cfg.mediaTCPPort, publicIPs); err != nil {
+	extUDPPort := cfg.publicUDPPort
+	if extUDPPort == 0 {
+		extUDPPort = cfg.mediaUDPPort
+	}
+	if err := buildWebRTCAPI(cfg.mediaIP, cfg.mediaUDPPort, cfg.mediaTCPPort, publicIPs, extUDPPort); err != nil {
 		log.Fatalf("webrtc setup: %v", err)
 	}
 

@@ -28,9 +28,9 @@ type codecDef struct {
 
 var (
 	h264Codecs = []codecDef{
-		{webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264, ClockRate: 90000, SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f", RTCPFeedback: videoFB}, 102, 103},
-		{webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264, ClockRate: 90000, SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f", RTCPFeedback: videoFB}, 108, 109},
 		{webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264, ClockRate: 90000, SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=64001f", RTCPFeedback: videoFB}, 112, 113},
+		{webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264, ClockRate: 90000, SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42001f", RTCPFeedback: videoFB}, 108, 109},
+		{webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeH264, ClockRate: 90000, SDPFmtpLine: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f", RTCPFeedback: videoFB}, 102, 103},
 	}
 	vp9Codecs = []codecDef{
 		{webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP9, ClockRate: 90000, SDPFmtpLine: "profile-id=2", RTCPFeedback: videoFB}, 100, 101},
@@ -77,7 +77,7 @@ func buildMediaEngine(mode string) (*webrtc.MediaEngine, error) {
 	return m, nil
 }
 
-func buildWebRTCAPI(bindIP string, udpPort, tcpPort int, publicIPs []string) error {
+func buildWebRTCAPI(bindIP string, udpPort, tcpPort int, publicIPs []string, extUDPPort int) error {
 	// Bind media sockets to ONE interface: on 0.0.0.0 pion advertises a host
 	// candidate per interface (docker0, tailscale0, ...); clients picking a
 	// ghost candidate wreck their bandwidth estimate.

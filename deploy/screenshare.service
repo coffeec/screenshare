@@ -8,10 +8,10 @@ User=coffee
 WorkingDirectory=/home/coffee/share
 ExecStart=/home/coffee/share/screenshare \
     -https-addr :8443 \
-    -media-udp-port 42000 \
+    -media-udp-port 54360 \
     -media-tcp-port 8444 \
-    -public-host CHANGE_TO_SAKURA_NODE_HOSTNAME \
-    -token CHANGE_ME \
+    -media-ip 192.168.5.4 \
+    -public-host frp-leg.com \
     -cert /home/coffee/share/cert.pem \
     -key /home/coffee/share/key.pem
 Restart=always

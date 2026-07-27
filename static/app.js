@@ -13,6 +13,13 @@ let statsTimer = null;
 let pingTimer = null;
 let wasSharing = false;
 
+// ---------- empty state observer ----------
+const gridEl = $('grid');
+const emptyStateEl = $('empty-state');
+new MutationObserver(() => {
+  emptyStateEl.hidden = gridEl.children.length > 0;
+}).observe(gridEl, { childList: true });
+
 // ---------- join ----------
 
 const params = new URLSearchParams(location.search);
@@ -67,7 +74,8 @@ function connect() {
   ws.onclose = () => {
     clearInterval(pingTimer);
     pingTimer = null;
-    teardownPC();
+    wasSharing = !!localStream;
+    teardownPC(false);
     if (!joined) return;
     setBanner(`连接断开,${Math.round(reconnectDelay / 1000)} 秒后重连…`);
     setTimeout(connect, reconnectDelay);
@@ -84,7 +92,13 @@ async function handleSignal(m) {
       peers = m.peers || [];
       newPeerConnection();
       renderLabels();
-      if (wasSharing) setBanner('连接已恢复。共享需要重新点击「共享屏幕」。');
+      if (wasSharing && localStream) {
+        setBanner('网络断开，正在自动恢复共享...');
+        publishLocalStream(localStream).then(() => {
+          setTimeout(() => setBanner(null), 2000);
+          wasSharing = false;
+        });
+      }
       break;
     case 'peers':
       peers = m.peers || [];
@@ -170,24 +184,29 @@ function makeTile(ownerId, isLocal) {
   tile.appendChild(video);
   video.addEventListener('dblclick', () => goFullscreen(video));
 
+  const overlay = document.createElement('div');
+  overlay.className = 'tile-overlay';
+  
   const label = document.createElement('span');
   label.className = 'label';
-  tile.appendChild(label);
+  overlay.appendChild(label);
 
-  const fs = document.createElement('button');
-  fs.className = 'fullscreen';
-  fs.title = '全屏(或双击画面)';
-  fs.textContent = '⛶';
-  fs.onclick = () => goFullscreen(video);
-  tile.appendChild(fs);
+  const controls = document.createElement('div');
+  controls.className = 'tile-controls';
+
+  const iconFullscreen = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>`;
+  const iconVolHigh = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>`;
+  const iconVolLow = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>`;
+  const iconMuted = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>`;
 
   if (!isLocal) {
-    const audio = document.createElement('div');
-    audio.className = 'audio-ctl';
+    const audioCtl = document.createElement('div');
+    audioCtl.className = 'audio-ctl';
 
     const unmute = document.createElement('button');
-    unmute.className = 'unmute';
-    unmute.textContent = '🔇';
+    unmute.className = 'icon-btn unmute';
+    unmute.innerHTML = iconMuted;
+    unmute.title = '静音/取消静音';
     unmute.onclick = () => {
       video.muted = !video.muted;
       syncAudioUI();
@@ -209,14 +228,24 @@ function makeTile(ownerId, isLocal) {
 
     function syncAudioUI() {
       const v = video.muted ? 0 : video.volume;
-      unmute.textContent = v === 0 ? '🔇' : v < 0.5 ? '🔉' : '🔊';
+      unmute.innerHTML = v === 0 ? iconMuted : v < 0.5 ? iconVolLow : iconVolHigh;
     }
     video.addEventListener('volumechange', syncAudioUI);
 
-    audio.appendChild(unmute);
-    audio.appendChild(vol);
-    tile.appendChild(audio);
+    audioCtl.appendChild(unmute);
+    audioCtl.appendChild(vol);
+    controls.appendChild(audioCtl);
   }
+
+  const fs = document.createElement('button');
+  fs.className = 'icon-btn fullscreen';
+  fs.title = '全屏(或双击画面)';
+  fs.innerHTML = iconFullscreen;
+  fs.onclick = () => goFullscreen(video);
+  controls.appendChild(fs);
+
+  overlay.appendChild(controls);
+  tile.appendChild(overlay);
 
   const stats = document.createElement('pre');
   stats.className = 'stats';
@@ -293,13 +322,19 @@ async function startShare() {
   tile.querySelector('video').srcObject = stream;
   $('grid').prepend(tile);
   renderLabels();
-  $('share-btn').textContent = '停止共享';
+  $('share-btn').querySelector('.btn-text').textContent = '停止共享';
   $('share-btn').classList.add('sharing');
 
   const videoTrack = stream.getVideoTracks()[0];
+  // motion 提示编码器优先保帧率（看视频/打游戏更流畅）
+  // 2x2 bug 已经由 degradationPreference='maintain-resolution' 彻底防住
   try { videoTrack.contentHint = 'motion'; } catch (e) { console.warn('contentHint', e); }
   videoTrack.onended = stopShare;   // browser's own "stop sharing" bar
 
+  await publishLocalStream(stream);
+}
+
+async function publishLocalStream(stream) {
   for (const track of stream.getTracks()) {
     const sender = pc.addTrack(track, stream);
     if (track.kind === 'video') {
@@ -308,12 +343,9 @@ async function startShare() {
         const p = sender.getParameters();
         if (!p.encodings || !p.encodings.length) p.encodings = [{}];
         p.encodings[0].maxBitrate = Number($('bitrate-select').value) * 1e6;
-        // Floor the start point so the ramp begins at ~2.5Mbps instead of
-        // the default ~300kbps probe — cuts 1080p ramp-up from minutes to
-        // seconds. If the path truly can't carry it, congestion control
-        // still backs off below the floor within a few seconds.
-        p.encodings[0].minBitrate = 2_500_000;
-        p.degradationPreference = 'maintain-framerate';
+        // 移除了 minBitrate，因为它会导致 NVENC 硬件编码器在某些场景下死锁卡死
+        // 彻底禁止 Chrome 在任何情况下降级分辨率（防止出现 2x2 bug）
+        p.degradationPreference = 'maintain-resolution';
         await sender.setParameters(p);
       } catch (e) { console.warn('setParameters', e); }
     }
@@ -381,7 +413,7 @@ function stopLocalCapture() {
   localStream = null;
   const tile = document.querySelector('.tile.local');
   if (tile) tile.remove();
-  $('share-btn').textContent = '共享屏幕';
+  $('share-btn').querySelector('.btn-text').textContent = '共享屏幕';
   $('share-btn').classList.remove('sharing');
 }
 

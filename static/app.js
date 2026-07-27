@@ -12,6 +12,7 @@ let reconnectDelay = 1000;
 let statsTimer = null;
 let pingTimer = null;
 let wasSharing = false;
+let subscribed = new Set();
 
 // ---------- empty state observer ----------
 const gridEl = $('grid');
@@ -23,8 +24,66 @@ new MutationObserver(() => {
 // ---------- join ----------
 
 const params = new URLSearchParams(location.search);
-if (params.get('room')) $('room-input').value = params.get('room');
+if (params.get('room')) {
+  $('room-input').value = params.get('room');
+  autoJoinIfRoom();
+}
 
+async function autoJoinIfRoom() {
+  const btn = $('join-form').querySelector('button[type="submit"]');
+  const span = btn.querySelector('span');
+  span.textContent = '正在获取位置...';
+  btn.disabled = true;
+
+  const suffixes = [
+    '的落地成盒专家', '的职业劝架人', '的被劝架受害者', '的泉水指挥官', '的0伤害捍卫者', '的红甲混子', '的白甲战神', '的瓦尔基里黑车', '的奥林匹斯坠崖者', '的跑毒马拉松选手', '的决赛圈演员', '的打背身被反杀', '的腰射大师', '的开镜必空', '的一生之敌门框', '的打药被打断', '的躺赢挂件', '的TS身法怪', '的蹬墙跳菜鸟', '的超级跳失误者', '的汗流浃背玩家', '的马枪大帝',
+    '的和平捍卫者', '的克雷贝尔狙神', '的暴走小帮手', '的红点R-301', '的滋崩真君', '的敖犬一发9点', '的电能冲锋枪', '的猎兽五连发', '的转换者双持', '的哈沃克猛男', '的平行步枪压不住', '的专注轻机枪', '的复仇女神', '的莫桑比克Here', '的EVA-8描边大师', '的长弓刮痧师傅', '的哨兵充能一枪头', '的三重狙击步枪', '的电弧星忍者', '的铝热剂封路',
+    '的红甲恶灵', '的扎针动力小子', '的白给幻象', '的扫描猎犬', '的胖子直布罗陀', '的毒气老头', '的罗芭黑店老板', '的密客无人机', '的电妹布防', '的烟妹人体描边', '的疯玛吉钻头', '的兰伯特塞拉', '的希尔透视', '的阿什传送门', '的地平线黑洞', '的万蒂奇小蝙蝠', '的导管充电宝', '的卡特莉斯黑墙', '的命脉不给奶',
+    '的凤凰治疗包', '的绝招加速剂', '的移动重生信标', '的撤离塔升天', '的金背包', '的诸王峡谷老兵', '的世界边缘打工人', '的风暴点跑酷者', '的残月滑索人', '的空投砸脸',
+    '的0.3辅助瞄准', '的0.3终极轮椅', '的近战一梭子融化', '的经典手柄老哥', '的站桩舔包受害者', '的近战轮椅战神', '的手柄一键锁头', '的帕金森抖枪术', '的超级跳身法怪', '的多动症舔包', '的键鼠手腕流', '的远距离点射大师', '的被手柄融化的键鼠'
+  ];
+
+  const customName = params.get('name');
+  const customSuffix = params.get('suffix');
+
+  let finalName = '';
+  if (customName) {
+    finalName = customName;
+  } else {
+    let loc = '神秘';
+    try {
+      const res = await fetch('https://api.ip.sb/geoip');
+      if (res.ok) {
+        const data = await res.json();
+        const en2zh = {
+          'Guangdong':'广东', 'Beijing':'北京', 'Shanghai':'上海', 'Zhejiang':'浙江',
+          'Jiangsu':'江苏', 'Shandong':'山东', 'Sichuan':'四川', 'Hubei':'湖北',
+          'Henan':'河南', 'Hunan':'湖南', 'Hebei':'河北', 'Fujian':'福建',
+          'Anhui':'安徽', 'Liaoning':'辽宁', 'Shaanxi':'陕西', 'Jiangxi':'江西',
+          'Chongqing':'重庆', 'Guangxi':'广西', 'Shanxi':'山西', 'Yunnan':'云南',
+          'Heilongjiang':'黑龙江', 'Jilin':'吉林', 'Guizhou':'贵州', 'Xinjiang':'新疆',
+          'Gansu':'甘肃', 'Inner Mongolia':'内蒙古', 'Hainan':'海南', 'Ningxia':'宁夏',
+          'Qinghai':'青海', 'Tibet':'西藏', 'Tianjin':'天津', 'Macao':'澳门', 'Hong Kong':'香港', 'Taiwan':'台湾'
+        };
+        if (['CN', 'TW', 'HK', 'MO'].includes(data.country_code)) {
+          loc = en2zh[data.region] || data.region || '神秘';
+        }
+      }
+    } catch(e) {
+      console.warn('IP Location fallback:', e);
+    }
+    const suffix = customSuffix || suffixes[Math.floor(Math.random() * suffixes.length)];
+    finalName = loc + suffix;
+  }
+
+  $('name-input').value = finalName;
+
+  span.textContent = '正在进入房间...';
+  // 等待渲染，并确保后续 submit 监听器已经挂载
+  setTimeout(() => {
+    $('join-form').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+  }, 100);
+}
 $('join-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const room = $('room-input').value.trim();
@@ -102,6 +161,10 @@ async function handleSignal(m) {
       break;
     case 'peers':
       peers = m.peers || [];
+      subscribed.forEach(id => {
+        const p = peers.find(peer => peer.id === id);
+        if (!p || !p.sharing) subscribed.delete(id);
+      });
       renderLabels();
       pruneTiles();
       break;
@@ -270,6 +333,107 @@ function renderLabels() {
     const name = tile.classList.contains('local') ? `${joined.name} (我)` : (info ? info.name : '…');
     tile.querySelector('.label').textContent = name;
   });
+  renderMembersList();
+}
+
+function renderMembersList() {
+  const sharingList = $('sharing-list');
+  const watchingList = $('watching-list');
+  if (!sharingList || !watchingList) return;
+  sharingList.innerHTML = '';
+  watchingList.innerHTML = '';
+  let sharingCount = 0;
+  let watchingCount = 0;
+
+  function makeMemberHTML(p, isSelf) {
+    const isSharing = isSelf ? !!localStream : p.sharing;
+    let html = `<div class="member-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg></div>
+    <div class="member-info">
+      <div class="member-name">${isSharing ? '<span class="live-badge">LIVE</span>' : ''}${p.name}${isSelf ? ' (你)' : ''}</div>`;
+    
+    if (isSharing && p.watchers && p.watchers.length > 0) {
+      html += `<div class="watchers-text">👀 ${p.watchers.join(', ')} 正在观看</div>`;
+    }
+    html += `</div>`;
+    
+    if (!isSelf && isSharing) {
+      if (subscribed.has(p.id)) {
+        html += `<button class="watch-btn watching" onclick="unsubscribeFrom('${p.id}')">停止观看</button>`;
+      } else {
+        html += `<button class="watch-btn" onclick="subscribeTo('${p.id}')">点击观看</button>`;
+      }
+    }
+    return html;
+  }
+
+  if (joined) {
+    const li = document.createElement('li');
+    li.className = 'is-self';
+    const selfPeer = peers.find(p => p.id === selfId);
+    li.innerHTML = makeMemberHTML({id: selfId, name: joined.name, sharing: !!localStream, watchers: selfPeer?.watchers}, true);
+    if (!!localStream) { sharingList.appendChild(li); sharingCount++; }
+    else { watchingList.appendChild(li); watchingCount++; }
+  }
+
+  peers.forEach(p => {
+    if (p.id === selfId) return;
+    const li = document.createElement('li');
+    li.innerHTML = makeMemberHTML(p, false);
+    if (p.sharing) { sharingList.appendChild(li); sharingCount++; }
+    else { watchingList.appendChild(li); watchingCount++; }
+  });
+
+  if ($('sharing-count')) $('sharing-count').textContent = sharingCount;
+  if ($('watching-count')) $('watching-count').textContent = watchingCount;
+
+  const count = sharingCount + watchingCount;
+  const countEl = $('members-count');
+  if (countEl) countEl.textContent = count;
+  const badgeEl = $('members-badge');
+  if (badgeEl) {
+    badgeEl.textContent = count;
+    badgeEl.hidden = count === 0;
+  }
+}
+
+window.subscribeTo = (id) => {
+  subscribed.add(id);
+  send({type: 'subscribe', targetId: id});
+  renderMembersList();
+  renderLobbyCards();
+};
+window.unsubscribeFrom = (id) => {
+  subscribed.delete(id);
+  send({type: 'unsubscribe', targetId: id});
+  renderMembersList();
+  renderLobbyCards();
+};
+
+function renderLobbyCards() {
+  const grid = $('grid');
+  document.querySelectorAll('.lobby-card').forEach(card => {
+    const owner = card.dataset.owner;
+    const p = peers.find(p => p.id === owner);
+    if (!p || !p.sharing || subscribed.has(owner)) {
+      card.remove();
+    }
+  });
+  
+  peers.forEach(p => {
+    if (p.id !== selfId && p.sharing && !subscribed.has(p.id)) {
+      if (!document.querySelector(`.lobby-card[data-owner="${p.id}"]`)) {
+        const card = document.createElement('div');
+        card.className = 'lobby-card';
+        card.dataset.owner = p.id;
+        card.innerHTML = `
+          <h3>📺 ${p.name} 正在共享屏幕</h3>
+          <p>点击右侧列表或下方按钮加入观看</p>
+          <button class="btn-primary" onclick="subscribeTo('${p.id}')">加入观看</button>
+        `;
+        grid.appendChild(card);
+      }
+    }
+  });
 }
 
 function pruneTiles() {
@@ -277,6 +441,7 @@ function pruneTiles() {
   document.querySelectorAll('.tile.remote').forEach((tile) => {
     if (!ids.has(tile.dataset.owner)) tile.remove();
   });
+  renderLobbyCards();
 }
 
 // ---------- capture ----------
@@ -491,3 +656,20 @@ function setBanner(text) {
   b.textContent = text;
   b.hidden = false;
 }
+
+// ---------- members panel toggling ----------
+
+$('members-btn').addEventListener('click', () => {
+  const panel = $('members-panel');
+  if (panel) {
+    panel.hidden = !panel.hidden;
+    if (!panel.hidden) {
+      renderMembersList();
+    }
+  }
+});
+
+$('close-members-btn').addEventListener('click', () => {
+  const panel = $('members-panel');
+  if (panel) panel.hidden = true;
+});

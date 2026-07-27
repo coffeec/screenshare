@@ -154,11 +154,19 @@ func (r *Room) signalPeerConnections() {
 				if sender.Track() == nil {
 					continue
 				}
-				existingSenders[sender.Track().ID()] = true
-				if _, ok := r.trackLocals[sender.Track().ID()]; !ok {
+				trackID := sender.Track().ID()
+				existingSenders[trackID] = true
+
+				localTrack, ok := r.trackLocals[trackID]
+				subscribed := false
+				if ok {
+					_, subscribed = p.subscribedTo.Load(localTrack.StreamID())
+				}
+				if !ok || !subscribed {
 					if err := p.pc.RemoveTrack(sender); err != nil {
 						return true
 					}
+					existingSenders[trackID] = false
 				}
 			}
 
@@ -170,9 +178,12 @@ func (r *Room) signalPeerConnections() {
 				existingSenders[receiver.Track().ID()] = true
 			}
 
-			for trackID := range r.trackLocals {
-				if !existingSenders[trackID] {
-					sender, err := p.pc.AddTrack(r.trackLocals[trackID])
+			for trackID, localTrack := range r.trackLocals {
+				ownerID := localTrack.StreamID()
+				_, subscribed := p.subscribedTo.Load(ownerID)
+				
+				if !existingSenders[trackID] && subscribed {
+					sender, err := p.pc.AddTrack(localTrack)
 					if err != nil {
 						return true
 					}
@@ -303,17 +314,33 @@ func (r *Room) dispatchKeyFrameLocked() {
 }
 
 type peerInfo struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Sharing bool   `json:"sharing"`
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Sharing  bool     `json:"sharing"`
+	Watchers []string `json:"watchers,omitempty"`
 }
 
 func (r *Room) peerList() []peerInfo {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
+	watchers := make(map[string][]string)
+	for _, watcher := range r.peers {
+		watcher.subscribedTo.Range(func(key, value any) bool {
+			targetID := key.(string)
+			watchers[targetID] = append(watchers[targetID], watcher.name)
+			return true
+		})
+	}
+
 	list := make([]peerInfo, 0, len(r.peers))
 	for _, p := range r.peers {
-		list = append(list, peerInfo{ID: p.id, Name: p.name, Sharing: p.sharing.Load()})
+		list = append(list, peerInfo{
+			ID:       p.id,
+			Name:     p.name,
+			Sharing:  p.sharing.Load(),
+			Watchers: watchers[p.id],
+		})
 	}
 	return list
 }

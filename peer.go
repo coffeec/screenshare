@@ -34,15 +34,17 @@ type msg struct {
 	SelfID    string                   `json:"selfId,omitempty"`
 	Peers     []peerInfo               `json:"peers,omitempty"`
 	Message   string                   `json:"message,omitempty"`
+	TargetID  string                   `json:"targetId,omitempty"`
 }
 
 type Peer struct {
 	id      string
 	name    string
 	pc      *webrtc.PeerConnection
-	ws      *websocket.Conn
-	wsMu    sync.Mutex
-	sharing atomic.Bool
+	ws           *websocket.Conn
+	wsMu         sync.Mutex
+	sharing      atomic.Bool
+	subscribedTo sync.Map
 }
 
 func (p *Peer) send(m msg) error {
@@ -235,6 +237,18 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			}
 		case "renegotiate":
 			room.signalPeerConnections()
+		case "subscribe":
+			if m.TargetID != "" {
+				peer.subscribedTo.Store(m.TargetID, true)
+				room.signalPeerConnections()
+				room.broadcastPeers()
+			}
+		case "unsubscribe":
+			if m.TargetID != "" {
+				peer.subscribedTo.Delete(m.TargetID)
+				room.signalPeerConnections()
+				room.broadcastPeers()
+			}
 		case "stop-share":
 			// Track removal happens when ReadRTP errors after the client
 			// stops its tracks; renegotiate promptly instead of waiting.

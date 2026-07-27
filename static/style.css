@@ -622,3 +622,220 @@ body {
   .tile-controls { background: rgba(0,0,0,0.5); padding: 4px; border-radius: var(--radius-pill); }
   .volume { width: 80px; opacity: 1; margin: 0 12px 0 4px; }
 }
+
+/* ---------- members panel ---------- */
+
+.members-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 320px;
+  background: rgba(18, 18, 20, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(0);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+  box-shadow: 8px 0 32px rgba(0, 0, 0, 0.3);
+}
+
+.members-panel[hidden] {
+  display: flex !important;
+  transform: translateX(-100%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.members-header {
+  padding: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.members-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.members-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.group-title {
+  margin: 16px 16px 8px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.members-divider {
+  border: 0;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.05);
+  margin: 8px 16px;
+}
+
+.members-list {
+  list-style: none;
+  padding: 0 16px;
+  margin: 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.members-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.members-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.members-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-md);
+  transition: background var(--transition);
+  position: relative;
+}
+
+.members-list li:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.members-list li.is-self {
+  border-color: rgba(88, 101, 242, 0.4);
+  background: rgba(88, 101, 242, 0.1);
+}
+
+.member-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.watchers-text {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.watch-btn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.watch-btn:hover {
+  background: var(--accent-hover);
+  box-shadow: 0 0 8px rgba(88, 101, 242, 0.4);
+}
+
+.watch-btn.watching {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-main);
+}
+
+.watch-btn.watching:hover {
+  background: var(--danger);
+  color: white;
+}
+
+.live-badge {
+  background: var(--danger);
+  color: white;
+  font-size: 0.65rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: bold;
+  margin-right: 6px;
+  animation: pulse-danger 2s infinite;
+}
+
+.lobby-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-light);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  margin: 16px;
+  text-align: center;
+  gap: 16px;
+  flex: 1 1 300px;
+  max-width: 400px;
+}
+
+.lobby-card h3 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.lobby-card p {
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.member-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--surface-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.member-name {
+  flex: 1;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: var(--accent);
+  color: white;
+  font-size: 0.7rem;
+  font-weight: bold;
+  padding: 2px 6px;
+  border-radius: 10px;
+  pointer-events: none;
+}
+
+#members-btn {
+  position: relative;
+}

@@ -41,6 +41,23 @@
 </div>
 
 <div id="room-panel" hidden>
+  <div id="members-panel" class="members-panel chrome" hidden>
+    <div class="members-header">
+      <h3>大厅 (<span id="members-count">0</span>)</h3>
+      <button id="close-members-btn" class="icon-btn" title="关闭">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    </div>
+    <div class="members-group">
+      <h4 class="group-title">📺 正在共享 (<span id="sharing-count">0</span>)</h4>
+      <ul id="sharing-list" class="members-list"></ul>
+    </div>
+    <hr class="members-divider">
+    <div class="members-group">
+      <h4 class="group-title">👀 观众席 (<span id="watching-count">0</span>)</h4>
+      <ul id="watching-list" class="members-list"></ul>
+    </div>
+  </div>
   <header id="room-header" class="chrome">
     <span class="live-dot" aria-hidden="true"></span>
     <span id="room-label"></span>
@@ -53,19 +70,24 @@
   </div>
   <div id="grid"></div>
   <div id="control-bar" class="chrome">
+    <button id="members-btn" class="btn-ghost" title="大厅">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+      <span class="badge" id="members-badge" hidden>0</span>
+    </button>
+    <div class="divider"></div>
     <div class="select-wrapper">
       <svg class="select-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
       <select id="codec-select" title="编码器">
-        <option value="h264" selected>H.264 (硬件加速)</option>
-        <option value="vp9">VP9 (高画质)</option>
+        <option value="h264" selected>电竞模式</option>
+        <option value="vp9">观影模式</option>
       </select>
     </div>
     <div class="select-wrapper">
       <svg class="select-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
       <select id="bitrate-select" title="共享码率">
-        <option value="3">3 Mbps</option>
-        <option value="5">5 Mbps</option>
-        <option value="8" selected>8 Mbps</option>
+        <option value="3">黄金路线</option>
+        <option value="5">钻石路线</option>
+        <option value="8" selected>猎杀路线</option>
       </select>
     </div>
     <div class="divider"></div>

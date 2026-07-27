@@ -1,0 +1,21 @@
+[Unit]
+Description=Screen Share SFU
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=coffee
+WorkingDirectory=/home/coffee/share
+ExecStart=/home/coffee/share/screenshare \
+    -https-addr :8443 \
+    -media-udp-port 42000 \
+    -media-tcp-port 8444 \
+    -public-host CHANGE_TO_SAKURA_NODE_HOSTNAME \
+    -token CHANGE_ME \
+    -cert /home/coffee/share/cert.pem \
+    -key /home/coffee/share/key.pem
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

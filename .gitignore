@@ -1,0 +1,9 @@
+# Build output
+out/
+
+# TLS certificates
+*.pem
+
+# IDE
+.idea/
+.vscode/

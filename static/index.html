@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>屏幕共享</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖥️</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="join-panel">
+  <div class="join-card">
+    <h1>屏幕共享</h1>
+    <p class="join-sub">和朋友一起看画面</p>
+    <form id="join-form">
+      <label>房间号 <input id="room-input" required placeholder="friday" autocomplete="off"></label>
+      <label>昵称 <input id="name-input" required placeholder="你的名字" autocomplete="off"></label>
+      <button type="submit">加入房间</button>
+      <p id="join-error" class="error" hidden></p>
+    </form>
+  </div>
+</div>
+
+<div id="room-panel" hidden>
+  <header id="room-header" class="chrome">
+    <span class="live-dot" aria-hidden="true"></span>
+    <span id="room-label"></span>
+  </header>
+  <p id="status-banner" hidden></p>
+  <div id="grid"></div>
+  <div id="control-bar" class="chrome">
+    <select id="codec-select" title="编码器">
+      <option value="h264" selected>游戏模式 · H264 硬编</option>
+      <option value="vp9">画质模式 · VP9</option>
+    </select>
+    <select id="bitrate-select" title="共享码率">
+      <option value="3">3 Mbps</option>
+      <option value="5">5 Mbps</option>
+      <option value="8">8 Mbps</option>
+      <option value="10" selected>10 Mbps</option>
+    </select>
+    <button id="share-btn">共享屏幕</button>
+    <button id="stats-btn" class="ghost" title="快捷键 s">统计</button>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -10,6 +10,7 @@
 - **极致低延迟**：基于 Pion SFU 架构，服务器仅转发 RTP 数据流而不转码，浏览器与服务器直接交互，天然无 Glare。
 - **按需订阅 (Selective Subscription)**：高效的流分发机制。服务器拦截视频流，仅向主动点击“加入观看”的用户下发视频数据。未观看的用户不会产生下行视频带宽消耗。
 - **观众席状态透传**：支持多端状态同步，服务器实时下发“谁正在观看谁”的追踪数据，共享者可清晰知晓当前的观看人数。
+- **可靠的共享生命周期**：停止共享后会清理观众端的最后一帧和订阅状态；同一页面再次发起共享时复用固定发布通道，无需刷新或重新进入房间。
 - **自动分配化名**：当用户加入未命名时，通过 IP 归属地 API 自动分配具有地域特征的临时昵称（如 `广东的神秘人`）。
 - **精细化控制**：支持动态切换硬编解码器（H.264 / VP9），以及多档自定义码率切换（3M / 5M / 8M），底层自带 TWCC 反压机制以适应网络波动。
 - **隐私与安全**：支持多房间隔离（`?room=<房间号>`）以及房间通行口令（Token）鉴权。
@@ -42,13 +43,16 @@ GOPROXY=https://goproxy.cn,direct go mod download
 ### 3. 安装 Systemd 服务守护 (服务器端执行一次)
 
 编辑 `deploy/screenshare.service`，替换其中的 `CHANGE_ME` (鉴权 Token) 和 `CHANGE_TO_SAKURA_NODE_HOSTNAME`。
-随后执行：
+随后执行。下面的示例只立即启动服务，不设置开机自启：
 
 ```bash
 sudo cp ~/share/deploy/screenshare.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now screenshare
+sudo systemctl disable screenshare
+sudo systemctl start screenshare
 ```
+
+需要开机自启时，再单独执行 `sudo systemctl enable screenshare`。
 
 ### 4. 内网穿透配置 (如 SakuraFrp)
 
@@ -85,13 +89,23 @@ sudo systemctl enable --now screenshare
 
 > 当界面出现 `limit: bandwidth` 提示说明当前网络带宽已经到达瓶颈，建议在底部控制栏适当下调码率。
 
+如果 VPS 服务商把入站与出站都计入月流量，可用下面的公式估算单个共享者的流量：
+
+```text
+月流量（GB）≈ 0.45 × 码率（Mbps）× 共享小时数 ×（1 + 全程观看人数）
+```
+
+例如，1 人以 8Mbps 共享 100 小时、4 人全程观看，约消耗 `1.8TB`；如果同一台 VPS 每月还消耗约 `300GB` 代理流量，合计约 `2.1TB`，不适合只有 `2TB` 月流量的套餐。将上限调整为 6Mbps 后，合计约为 `1.65TB`，再为 WebRTC、TCP/TLS 等协议开销预留余量。
+
+实际流量取决于平均码率和真实观看时长，界面中的码率选项是上限，并不代表视频会始终跑满该数值。不同服务商可能只统计出站流量，部署前应确认其计费口径和每月重置时区。
+
 ---
 
 ## 已知限制
 
 - **Linux Wayland**: 部分桌面合成器存在 30fps 的硬限制，建议优先共享单个窗口而非整个屏幕。
 - **macOS**: 必须在系统设置中授予浏览器“屏幕录制”权限，并且苹果系统级限制仅能采集浏览器标签页的声音，无法采集全局系统音频。
-- **断线重连**: 屏幕共享在断网恢复后无法自动重连（浏览器的安全机制要求 `getDisplayMedia` 必须由真实用户手势触发），需根据页面提示重新点击「共享屏幕」。
+- **断线重连**: WebSocket 或 WebRTC 短暂断线时，只要浏览器采集轨道仍然存活，页面会自动重建连接并恢复发布；刷新页面、关闭浏览器或系统主动终止采集后，仍需由用户重新点击「共享屏幕」。
 - **浏览器推荐**: 建议使用 Chrome 或 Edge 浏览器，以获取对硬件加速编解码的最佳支持。
 
 ---

@@ -17,6 +17,7 @@ var (
 type Room struct {
 	id          string
 	mu          sync.RWMutex
+	signalMu    sync.Mutex
 	peers       []*Peer
 	trackLocals map[string]*webrtc.TrackLocalStaticRTP
 	stop        chan struct{}
@@ -44,6 +45,7 @@ func joinRoom(id string, p *Peer) *Room {
 	}
 	r.mu.Lock()
 	r.peers = append(r.peers, p)
+	p.negotiationNeeded.Store(true)
 	r.mu.Unlock()
 	roomsMu.Unlock()
 
@@ -59,6 +61,12 @@ func (r *Room) removePeer(p *Peer) {
 		if other == p {
 			r.peers = append(r.peers[:i], r.peers[i+1:]...)
 			break
+		}
+	}
+	for _, other := range r.peers {
+		if _, subscribed := other.subscribedTo.Load(p.id); subscribed {
+			other.subscribedTo.Delete(p.id)
+			other.negotiationNeeded.Store(true)
 		}
 	}
 	empty := len(r.peers) == 0
@@ -88,6 +96,7 @@ func (r *Room) addTrack(owner *Peer, t *webrtc.TrackRemote) *webrtc.TrackLocalSt
 		return nil
 	}
 	r.trackLocals[t.ID()] = local
+	r.markSubscribersForOwnerLocked(owner.id)
 	r.mu.Unlock()
 
 	owner.sharing.Store(true)
@@ -106,6 +115,11 @@ func (r *Room) removeTrack(owner *Peer, local *webrtc.TrackLocalStaticRTP) {
 			break
 		}
 	}
+	if stillSharing {
+		r.markSubscribersForOwnerLocked(owner.id)
+	} else {
+		r.clearSubscribersForOwnerLocked(owner.id)
+	}
 	r.mu.Unlock()
 
 	if !stillSharing {
@@ -115,17 +129,34 @@ func (r *Room) removeTrack(owner *Peer, local *webrtc.TrackLocalStaticRTP) {
 	r.signalPeerConnections()
 }
 
-// signalPeerConnections syncs senders on every peer with the room's track set
-// and sends fresh offers.
-//
-// Offers are collected under the lock but sent AFTER releasing it, so a single
-// slow/stalled WebSocket (common over the SakuraFrp double-hop) cannot block
-// the entire room's signaling path.
+func (r *Room) markSubscribersForOwnerLocked(ownerID string) {
+	for _, p := range r.peers {
+		if _, subscribed := p.subscribedTo.Load(ownerID); subscribed {
+			p.negotiationNeeded.Store(true)
+		}
+	}
+}
+
+func (r *Room) clearSubscribersForOwnerLocked(ownerID string) {
+	for _, p := range r.peers {
+		if _, subscribed := p.subscribedTo.Load(ownerID); subscribed {
+			p.subscribedTo.Delete(ownerID)
+			p.negotiationNeeded.Store(true)
+		}
+	}
+}
+
+// signalPeerConnections serializes offer creation and negotiates only peers
+// whose subscriptions or publish direction changed. An unstable peer is
+// retried without discarding offers already prepared for other peers.
 func (r *Room) signalPeerConnections() {
 	type pendingOffer struct {
 		peer *Peer
 		sdp  string
 	}
+
+	r.signalMu.Lock()
+	defer r.signalMu.Unlock()
 
 	r.mu.Lock()
 
@@ -148,7 +179,16 @@ func (r *Room) signalPeerConnections() {
 
 		pending = pending[:0]
 
+	peerLoop:
 		for _, p := range r.peers {
+			if !p.negotiationNeeded.Swap(false) {
+				continue
+			}
+			if p.pc.SignalingState() != webrtc.SignalingStateStable {
+				p.negotiationNeeded.Store(true)
+				tryAgain = true
+				continue
+			}
 			existingSenders := map[string]bool{}
 			for _, sender := range p.pc.GetSenders() {
 				if sender.Track() == nil {
@@ -164,7 +204,10 @@ func (r *Room) signalPeerConnections() {
 				}
 				if !ok || !subscribed {
 					if err := p.pc.RemoveTrack(sender); err != nil {
-						return true
+						log.Printf("peer %s: remove track %s: %v", p.id, trackID, err)
+						p.negotiationNeeded.Store(true)
+						tryAgain = true
+						continue peerLoop
 					}
 					existingSenders[trackID] = false
 				}
@@ -181,11 +224,14 @@ func (r *Room) signalPeerConnections() {
 			for trackID, localTrack := range r.trackLocals {
 				ownerID := localTrack.StreamID()
 				_, subscribed := p.subscribedTo.Load(ownerID)
-				
+
 				if !existingSenders[trackID] && subscribed {
 					sender, err := p.pc.AddTrack(localTrack)
 					if err != nil {
-						return true
+						log.Printf("peer %s: add track %s: %v", p.id, trackID, err)
+						p.negotiationNeeded.Store(true)
+						tryAgain = true
+						continue peerLoop
 					}
 					// Forward this viewer's keyframe requests (PLI/FIR) to the
 					// publisher; without this a joining viewer stares at black
@@ -194,37 +240,26 @@ func (r *Room) signalPeerConnections() {
 				}
 			}
 
-			if p.pc.SignalingState() != webrtc.SignalingStateStable {
-				return true
-			}
-
 			offer, err := p.pc.CreateOffer(nil)
 			if err != nil {
-				return true
+				log.Printf("peer %s: create offer: %v", p.id, err)
+				p.negotiationNeeded.Store(true)
+				tryAgain = true
+				continue
 			}
 			if err = p.pc.SetLocalDescription(offer); err != nil {
-				return true
+				log.Printf("peer %s: set local offer: %v", p.id, err)
+				p.negotiationNeeded.Store(true)
+				tryAgain = true
+				continue
 			}
 
 			pending = append(pending, pendingOffer{peer: p, sdp: offer.SDP})
 		}
-		return false
+		return tryAgain
 	}
 
-	for tries := 0; ; tries++ {
-		if tries == 25 {
-			// Release and retry later; something is mid-negotiation.
-			r.mu.Unlock()
-			go func() {
-				time.Sleep(3 * time.Second)
-				r.signalPeerConnections()
-			}()
-			return
-		}
-		if !attemptSync() {
-			break
-		}
-	}
+	needsRetry := attemptSync()
 
 	r.dispatchKeyFrameLocked()
 	r.mu.Unlock()
@@ -232,7 +267,12 @@ func (r *Room) signalPeerConnections() {
 	// Send offers outside the lock — a stalled client's 10s write deadline
 	// no longer blocks track sync or SDP generation for the whole room.
 	for _, o := range pending {
-		_ = o.peer.send(msg{Type: "offer", SDP: o.sdp})
+		if err := o.peer.send(msg{Type: "offer", SDP: o.sdp}); err != nil {
+			log.Printf("peer %s: send offer: %v", o.peer.id, err)
+		}
+	}
+	if needsRetry {
+		time.AfterFunc(250*time.Millisecond, r.signalPeerConnections)
 	}
 }
 

@@ -46,7 +46,7 @@ func buildMediaEngine(mode string) (*webrtc.MediaEngine, error) {
 	if err := m.RegisterCodec(webrtc.RTPCodecParameters{
 		RTPCodecCapability: webrtc.RTPCodecCapability{
 			MimeType: webrtc.MimeTypeOpus, ClockRate: 48000, Channels: 2,
-			SDPFmtpLine:  "minptime=10;useinbandfec=1",
+			SDPFmtpLine:  "minptime=10;useinbandfec=1;stereo=1;sprop-stereo=1;maxaveragebitrate=128000",
 			RTCPFeedback: []webrtc.RTCPFeedback{{Type: "transport-cc"}},
 		},
 		PayloadType: 111,

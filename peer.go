@@ -41,10 +41,12 @@ type Peer struct {
 	id      string
 	name    string
 	pc      *webrtc.PeerConnection
-	ws           *websocket.Conn
-	wsMu         sync.Mutex
-	sharing      atomic.Bool
-	subscribedTo sync.Map
+	ws      *websocket.Conn
+	wsMu    sync.Mutex
+	sharing atomic.Bool
+
+	subscribedTo      sync.Map
+	negotiationNeeded atomic.Bool
 }
 
 func (p *Peer) send(m msg) error {
@@ -228,6 +230,8 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				Type: webrtc.SDPTypeAnswer, SDP: m.SDP,
 			}); err != nil {
 				log.Printf("peer %s: set answer: %v", peer.id, err)
+			} else if peer.negotiationNeeded.Load() {
+				room.signalPeerConnections()
 			}
 		case "candidate":
 			if m.Candidate != nil {
@@ -236,22 +240,26 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		case "renegotiate":
+			peer.negotiationNeeded.Store(true)
 			room.signalPeerConnections()
 		case "subscribe":
 			if m.TargetID != "" {
 				peer.subscribedTo.Store(m.TargetID, true)
+				peer.negotiationNeeded.Store(true)
 				room.signalPeerConnections()
 				room.broadcastPeers()
 			}
 		case "unsubscribe":
 			if m.TargetID != "" {
 				peer.subscribedTo.Delete(m.TargetID)
+				peer.negotiationNeeded.Store(true)
 				room.signalPeerConnections()
 				room.broadcastPeers()
 			}
 		case "stop-share":
 			// Track removal happens when ReadRTP errors after the client
 			// stops its tracks; renegotiate promptly instead of waiting.
+			peer.negotiationNeeded.Store(true)
 			room.signalPeerConnections()
 		default:
 			log.Printf("peer %s: unknown message type %q", peer.id, m.Type)

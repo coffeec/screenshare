@@ -38,7 +38,7 @@ async function autoJoinIfRoom() {
   const suffixes = [
     '的落地成盒专家', '的职业劝架人', '的被劝架受害者', '的泉水指挥官', '的0伤害捍卫者', '的红甲混子', '的白甲战神', '的瓦尔基里黑车', '的奥林匹斯坠崖者', '的跑毒马拉松选手', '的决赛圈演员', '的打背身被反杀', '的腰射大师', '的开镜必空', '的一生之敌门框', '的打药被打断', '的躺赢挂件', '的TS身法怪', '的蹬墙跳菜鸟', '的超级跳失误者', '的汗流浃背玩家', '的马枪大帝',
     '的和平捍卫者', '的克雷贝尔狙神', '的暴走小帮手', '的红点R-301', '的滋崩真君', '的敖犬一发9点', '的电能冲锋枪', '的猎兽五连发', '的转换者双持', '的哈沃克猛男', '的平行步枪压不住', '的专注轻机枪', '的复仇女神', '的莫桑比克Here', '的EVA-8描边大师', '的长弓刮痧师傅', '的哨兵充能一枪头', '的三重狙击步枪', '的电弧星忍者', '的铝热剂封路',
-    '的红甲恶灵', '的扎针动力小子', '的白给幻象', '的扫描猎犬', '的胖子直布罗陀', '的毒气老头', '的罗芭黑店老板', '的密客无人机', '的电妹布防', '的烟妹人体描边', '的疯玛吉钻头', '的兰伯特塞拉', '的希尔透视', '的阿什传送门', '的地平线黑洞', '的万蒂奇小蝙蝠', '的导管充电宝', '的卡特莉斯黑墙', '的命脉不给奶',
+    '的红甲恶灵', '的扎针动力小子', '的白给幻象', '的扫描猎犬', '的胖子直布罗陀', '的毒气老头', '的罗芭黑店老板', '的密客无人机', '的电妹布防', '的烟妹人体描边', '的疯玛吉钻头', '的兰伯特塞拉', '的希尔透视', '的变幻传送门', '的地平线黑洞', '的万蒂奇小蝙蝠', '的导管充电宝', '的卡特莉斯黑墙', '的命脉不给奶',
     '的凤凰治疗包', '的绝招加速剂', '的移动重生信标', '的撤离塔升天', '的金背包', '的诸王峡谷老兵', '的世界边缘打工人', '的风暴点跑酷者', '的残月滑索人', '的空投砸脸',
     '的0.3辅助瞄准', '的0.3终极轮椅', '的近战一梭子融化', '的经典手柄老哥', '的站桩舔包受害者', '的近战轮椅战神', '的手柄一键锁头', '的帕金森抖枪术', '的超级跳身法怪', '的多动症舔包', '的键鼠手腕流', '的远距离点射大师', '的被手柄融化的键鼠'
   ];
@@ -232,6 +232,16 @@ function attachRemote(stream) {
   stream.onremovetrack = () => {
     if (stream.getTracks().length === 0) tile.remove();
   };
+  const videoTrack = stream.getVideoTracks()[0];
+  if (videoTrack) {
+    videoTrack.onended = () => tile.remove();
+    videoTrack.onmute = () => {
+      setTimeout(() => {
+        const owner = peers.find((p) => p.id === tile.dataset.owner);
+        if (videoTrack.muted && (!owner || !owner.sharing)) tile.remove();
+      }, 500);
+    };
+  }
   renderLabels();
 }
 
@@ -470,7 +480,14 @@ async function startShare() {
   try {
     stream = await navigator.mediaDevices.getDisplayMedia({
       video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60 } },
-      audio: true,
+      audio: {
+        channelCount: { ideal: 2 },
+        sampleRate: { ideal: 48000 },
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      },
+      systemAudio: 'include',
     });
   } catch (err) {
     console.warn('getDisplayMedia failed', err);
@@ -496,7 +513,52 @@ async function startShare() {
   try { videoTrack.contentHint = 'motion'; } catch (e) { console.warn('contentHint', e); }
   videoTrack.onended = stopShare;   // browser's own "stop sharing" bar
 
+  const audioTrack = stream.getAudioTracks()[0];
+  if (audioTrack) {
+    try { audioTrack.contentHint = 'music'; } catch (e) { console.warn('audio contentHint', e); }
+  }
+
   await publishLocalStream(stream);
+}
+
+async function logAudioDiagnostics(sender, track) {
+  const readOutbound = async () => {
+    const report = await sender.getStats();
+    const outbound = [...report.values()].find((s) =>
+      s.type === 'outbound-rtp' && (s.kind === 'audio' || s.mediaType === 'audio'));
+    const codec = outbound && outbound.codecId ? report.get(outbound.codecId) : null;
+    return { outbound, codec };
+  };
+
+  try {
+    const first = await readOutbound();
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    if (sender.track !== track || track.readyState !== 'live') return;
+    const second = await readOutbound();
+    let bitrateKbps = null;
+    if (first.outbound && second.outbound) {
+      const elapsedMs = second.outbound.timestamp - first.outbound.timestamp;
+      if (elapsedMs > 0) {
+        bitrateKbps = Math.round(
+          ((second.outbound.bytesSent - first.outbound.bytesSent) * 8) / elapsedMs,
+        );
+      }
+    }
+    console.info('audio diagnostics', {
+      settings: track.getSettings(),
+      constraints: track.getConstraints(),
+      contentHint: track.contentHint,
+      codec: second.codec && {
+        mimeType: second.codec.mimeType,
+        clockRate: second.codec.clockRate,
+        channels: second.codec.channels,
+        sdpFmtpLine: second.codec.sdpFmtpLine,
+      },
+      bitrateKbps,
+    });
+  } catch (err) {
+    console.warn('audio diagnostics failed', err);
+  }
 }
 
 async function publishLocalStream(stream) {
@@ -513,6 +575,14 @@ async function publishLocalStream(stream) {
         p.degradationPreference = 'maintain-resolution';
         await sender.setParameters(p);
       } catch (e) { console.warn('setParameters', e); }
+    } else if (track.kind === 'audio') {
+      try {
+        const p = sender.getParameters();
+        if (!p.encodings || !p.encodings.length) p.encodings = [{}];
+        p.encodings[0].maxBitrate = 128000;
+        await sender.setParameters(p);
+      } catch (e) { console.warn('audio setParameters', e); }
+      void logAudioDiagnostics(sender, track);
     }
   }
   send({ type: 'renegotiate' });

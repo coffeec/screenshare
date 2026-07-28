@@ -13,6 +13,9 @@ let statsTimer = null;
 let pingTimer = null;
 let wasSharing = false;
 let subscribed = new Set();
+let shareActionRunning = false;
+let publishStopPending = false;
+let publishStopWaiters = [];
 
 // ---------- empty state observer ----------
 const gridEl = $('grid');
@@ -171,11 +174,15 @@ async function handleSignal(m) {
     case 'offer':
       if (!pc) return;
       await pc.setRemoteDescription({ type: 'offer', sdp: m.sdp });
+      // The server owns offer creation. Attach capture tracks to its reserved
+      // publish transceivers before answering, including after a reconnect.
+      if (localStream) await attachPublishTracks(localStream);
       for (const c of pendingCandidates.splice(0)) {
         try { await pc.addIceCandidate(c); } catch (err) { console.warn('addIceCandidate(queued)', err); }
       }
       await pc.setLocalDescription(await pc.createAnswer());
       send({ type: 'answer', sdp: pc.localDescription.sdp });
+      if (publishStopPending && !localStream) finishPublishStop();
       break;
     case 'candidate':
       if (!pc) return;
@@ -457,7 +464,17 @@ function pruneTiles() {
 // ---------- capture ----------
 
 $('share-btn').addEventListener('click', () => {
-  if (localStream) stopShare(); else startShare();
+  if (shareActionRunning) return;
+  shareActionRunning = true;
+  $('share-btn').disabled = true;
+  const action = localStream ? stopShare() : startShare();
+  Promise.resolve(action).catch((err) => {
+    console.warn('share action failed', err);
+    setBanner(`共享操作失败: ${err.message || err}`);
+  }).finally(() => {
+    shareActionRunning = false;
+    $('share-btn').disabled = false;
+  });
 });
 
 async function startShare() {
@@ -466,15 +483,10 @@ async function startShare() {
     setBanner('还没连上服务器,稍等一下再试…');
     return;
   }
-  // We are the SDP answerer, so addTrack must reuse the server's pre-negotiated
-  // publish m-line. Right after a stop-share that m-line is still 'sendonly'
-  // until the server's re-offer lands; addTrack now would create an
-  // un-negotiable transceiver that silently sends nothing.
-  const pubVideo = pc.getTransceivers().find((t) => t.mid === '0');
-  console.log('startShare: transceivers', pc.getTransceivers().map((t) => `${t.mid}:${t.currentDirection}`));
-  if (pubVideo && (pubVideo.currentDirection === 'sendonly' || pubVideo.currentDirection === 'sendrecv')) {
-    setBanner('正在释放上一次共享,请等一两秒再点…');
-    return;
+  if (publishStopPending) {
+    setBanner('正在完成上一次共享,请稍候…');
+    await waitForPublishStop();
+    if (!pc || !ws || ws.readyState !== WebSocket.OPEN) return;
   }
   let stream;
   try {
@@ -562,8 +574,42 @@ async function logAudioDiagnostics(sender, track) {
 }
 
 async function publishLocalStream(stream) {
-  for (const track of stream.getTracks()) {
-    const sender = pc.addTrack(track, stream);
+  if (!pc || stream !== localStream) return;
+  // A fresh connection has no transceivers until the server's initial offer.
+  // handleSignal('offer') attaches this stream before creating the answer.
+  if (!getPublishTransceiver('video')) {
+    send({ type: 'renegotiate' });
+    return;
+  }
+  await attachPublishTracks(stream);
+  send({ type: 'renegotiate' });
+}
+
+function getPublishTransceiver(kind) {
+  if (!pc) return null;
+  // peer.go reserves video and audio as the first two m-lines, in that order.
+  const expectedMid = kind === 'video' ? '0' : '1';
+  return pc.getTransceivers().find((t) => t.mid === expectedMid) || null;
+}
+
+async function attachPublishTracks(stream) {
+  if (!pc || stream !== localStream) return;
+  for (const kind of ['video', 'audio']) {
+    const transceiver = getPublishTransceiver(kind);
+    if (!transceiver) continue;
+    const track = kind === 'video' ? stream.getVideoTracks()[0] : stream.getAudioTracks()[0];
+    if (!track) {
+      transceiver.direction = 'inactive';
+      await transceiver.sender.replaceTrack(null);
+      continue;
+    }
+
+    const sender = transceiver.sender;
+    const changed = sender.track !== track;
+    transceiver.direction = 'sendonly';
+    if (typeof sender.setStreams === 'function') sender.setStreams(stream);
+    if (changed) await sender.replaceTrack(track);
+
     if (track.kind === 'video') {
       try { preferBestQuality(sender); } catch (e) { console.warn('setCodecPreferences', e); }
       try {
@@ -582,10 +628,9 @@ async function publishLocalStream(stream) {
         p.encodings[0].maxBitrate = 128000;
         await sender.setParameters(p);
       } catch (e) { console.warn('audio setParameters', e); }
-      void logAudioDiagnostics(sender, track);
+      if (changed) void logAudioDiagnostics(sender, track);
     }
   }
-  send({ type: 'renegotiate' });
 }
 
 $('bitrate-select').addEventListener('change', async () => {
@@ -633,13 +678,47 @@ function preferBestQuality(sender) {
   transceiver.setCodecPreferences([...codecs].sort((a, b) => rank(a) - rank(b)));
 }
 
-function stopShare() {
+async function stopShare() {
+  if (!localStream) return;
   stopLocalCapture();
   wasSharing = false;
   if (pc) {
-    pc.getSenders().forEach((s) => { if (s.track) pc.removeTrack(s); });
+    for (const kind of ['video', 'audio']) {
+      const transceiver = getPublishTransceiver(kind);
+      if (!transceiver) continue;
+      transceiver.direction = 'inactive';
+      await transceiver.sender.replaceTrack(null).catch((err) => {
+        console.warn(`stop ${kind} sender`, err);
+      });
+      if (typeof transceiver.sender.setStreams === 'function') transceiver.sender.setStreams();
+    }
   }
+  publishStopPending = !!pc && !!ws && ws.readyState === WebSocket.OPEN;
   send({ type: 'stop-share' });
+}
+
+function finishPublishStop() {
+  publishStopPending = false;
+  const waiters = publishStopWaiters;
+  publishStopWaiters = [];
+  waiters.forEach((resolve) => resolve());
+}
+
+function waitForPublishStop(timeoutMs = 5000) {
+  if (!publishStopPending) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      publishStopWaiters = publishStopWaiters.filter((waiter) => waiter !== done);
+      publishStopPending = false;
+      console.warn('timed out waiting for stop-share negotiation');
+      resolve();
+    }, timeoutMs);
+    publishStopWaiters.push(done);
+  });
 }
 
 function stopLocalCapture() {

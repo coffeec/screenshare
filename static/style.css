@@ -338,6 +338,14 @@ body {
   perspective: 1000px;
 }
 
+#grid.lobby-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: safe center;
+  align-content: safe center;
+  align-items: stretch;
+}
+
 
 
 .tile {
@@ -780,28 +788,66 @@ body {
 
 .lobby-card {
   display: flex;
+  flex: 0 1 340px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: var(--surface-light);
+  min-height: 248px;
+  width: 100%;
+  background: rgba(30, 32, 38, 0.78);
   border: 1px solid var(--glass-border);
-  border-radius: var(--radius-lg);
-  padding: 32px;
-  margin: 16px;
+  border-radius: var(--radius-md);
+  padding: 32px 28px;
   text-align: center;
-  gap: 16px;
-  flex: 1 1 300px;
-  max-width: 400px;
+  box-shadow: 0 12px 36px rgba(4, 6, 12, 0.24);
+}
+
+.lobby-card-icon {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 20px;
+  color: #9ea7ff;
+  background: rgba(88, 101, 242, 0.12);
+  border: 1px solid rgba(126, 138, 255, 0.2);
+  border-radius: var(--radius-md);
 }
 
 .lobby-card h3 {
   margin: 0;
-  font-size: 1.2rem;
+  max-width: 100%;
+  color: var(--text-main);
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
-.lobby-card p {
+.lobby-card-status {
+  display: block;
+  margin-top: 6px;
   color: var(--text-muted);
-  margin: 0;
+  font-size: 0.875rem;
+}
+
+.lobby-card .btn-primary {
+  min-width: 132px;
+  margin-top: 24px;
+  padding: 11px 22px;
+}
+
+@media (max-width: 768px) {
+  #grid.lobby-grid {
+    padding-inline: 20px;
+  }
+
+  .lobby-card {
+    flex-basis: 100%;
+    max-width: 360px;
+    min-height: 224px;
+    padding: 28px 24px;
+  }
 }
 
 .member-icon {

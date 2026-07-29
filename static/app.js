@@ -22,6 +22,9 @@ const gridEl = $('grid');
 const emptyStateEl = $('empty-state');
 new MutationObserver(() => {
   emptyStateEl.hidden = gridEl.children.length > 0;
+  const hasLobbyCards = gridEl.querySelector('.lobby-card') !== null;
+  const hasVideoTiles = gridEl.querySelector('.tile') !== null;
+  gridEl.classList.toggle('lobby-grid', hasLobbyCards && !hasVideoTiles);
 }).observe(gridEl, { childList: true });
 
 // ---------- join ----------
@@ -442,11 +445,26 @@ function renderLobbyCards() {
         const card = document.createElement('div');
         card.className = 'lobby-card';
         card.dataset.owner = p.id;
-        card.innerHTML = `
-          <h3>📺 ${p.name} 正在共享屏幕</h3>
-          <p>点击右侧列表或下方按钮加入观看</p>
-          <button class="btn-primary" onclick="subscribeTo('${p.id}')">加入观看</button>
-        `;
+
+        const icon = document.createElement('div');
+        icon.className = 'lobby-card-icon';
+        icon.setAttribute('aria-hidden', 'true');
+        icon.innerHTML = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>';
+
+        const title = document.createElement('h3');
+        title.textContent = p.name;
+
+        const status = document.createElement('span');
+        status.className = 'lobby-card-status';
+        status.textContent = '正在共享屏幕';
+
+        const button = document.createElement('button');
+        button.className = 'btn-primary';
+        button.type = 'button';
+        button.textContent = '加入观看';
+        button.addEventListener('click', () => subscribeTo(p.id));
+
+        card.append(icon, title, status, button);
         grid.appendChild(card);
       }
     }
